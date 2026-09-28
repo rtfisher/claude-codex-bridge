@@ -76,7 +76,7 @@ class MessageTests(BridgeFixture):
         def failing_transport(*args):
             raise TimeoutError("fake transport timed out")
 
-        with self.assertRaises(TimeoutError):
+        with self.assertRaisesRegex(RuntimeError, "Transport timed out"):
             bridge.deliver(self.root, self.config, message_id, transport=failing_transport)
         attempt = self.messages()[message_id]["attempts"][0]
         self.assertEqual(attempt["status"], "delivery_unknown")
@@ -137,7 +137,7 @@ class MessageTests(BridgeFixture):
                 process.communicate()
 
 
-class TransportTests(BridgeFixture):
+class SocketFixture(BridgeFixture):
     def setUp(self):
         super().setUp()
         self.endpoint = self.root / "inbox.sock"
@@ -160,6 +160,8 @@ class TransportTests(BridgeFixture):
             "claude_socket_identity": [info.st_dev, info.st_ino],
         })
 
+
+class TransportTests(SocketFixture):
     def test_fake_socket_receives_frame_with_shared_claim_directory(self):
         message_id = self.create(body="Unicode reply: café")
         outcome = bridge.deliver(self.root, self.config, message_id, transport=bridge.submit)
@@ -178,8 +180,10 @@ class TransportTests(BridgeFixture):
         self.assertEqual(frame["msg_id"], message_id)
         self.assertEqual(frame["session_id"], "test-claude")
         self.assertIn(f"State directory: {self.root}", frame["message"]["content"])
-        self.assertIn("Unicode reply: café", frame["message"]["content"])
-        self.assertFalse(bridge.claim(self.root, self.config, message_id, "claude")["duplicate"])
+        self.assertNotIn("Unicode reply: café", frame["message"]["content"])
+        receipt = bridge.claim(self.root, self.config, message_id, "claude")
+        self.assertFalse(receipt["duplicate"])
+        self.assertEqual(receipt["body"], "Unicode reply: café")
 
     def test_changed_registry_pins_reject_delivery(self):
         for field in ("sessionId", "pid", "procStart", "messagingSocketPath"):
@@ -222,16 +226,16 @@ class TransportTests(BridgeFixture):
 
     def test_queue_failure_records_uncertain_attempt(self):
         message_id = self.create(recipient="codex")
-        result = subprocess.CompletedProcess([], 7, stdout="", stderr="fake queue failure")
-        with patch.object(bridge.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(RuntimeError, "codex queue exit 7"):
+        error = subprocess.CalledProcessError(7, ["fake-codex"], stderr="fake queue failure")
+        with patch.object(bridge.subprocess, "run", side_effect=error):
+            with self.assertRaisesRegex(RuntimeError, "Transport exited with status 7"):
                 bridge.deliver(self.root, self.config, message_id, transport=bridge.submit)
         self.assertEqual(self.messages()[message_id]["attempts"][0]["status"], "delivery_unknown")
 
     def test_queue_timeout_records_uncertain_attempt(self):
         message_id = self.create(recipient="codex")
         with patch.object(bridge.subprocess, "run", side_effect=subprocess.TimeoutExpired("fake-codex", 30)):
-            with self.assertRaises(subprocess.TimeoutExpired):
+            with self.assertRaisesRegex(RuntimeError, "Transport timed out"):
                 bridge.deliver(self.root, self.config, message_id, transport=bridge.submit)
         self.assertEqual(self.messages()[message_id]["attempts"][0]["status"], "delivery_unknown")
 

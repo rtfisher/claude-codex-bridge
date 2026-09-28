@@ -3,6 +3,7 @@
 endpoints.json
 ledger.json
 .ledger.lock
+.delivery-*.lock
 .bridge-*
 /COPY_ORIGIN.json
 

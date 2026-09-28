@@ -248,7 +248,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(sent, [message_id, message_id, reply_id])
         self.assertEqual(set(state), {message_id, reply_id})
 
-    def test_cli_can_still_open_an_explicit_legacy_directory(self):
+    def test_cli_can_open_an_explicit_external_directory(self):
         root, config = self.configure(root=self.base / "legacy")
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
             message_id = bridge.create(root, config, "claude", "task", "old history")
