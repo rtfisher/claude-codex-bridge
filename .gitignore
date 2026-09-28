@@ -1,0 +1,17 @@
+# Session configuration, message history, and local installation provenance.
+/sessions/
+endpoints.json
+ledger.json
+.ledger.lock
+.bridge-*
+/COPY_ORIGIN.json
+
+# Local message files, environments, and generated files.
+/bodies/
+/.env
+/.env.*
+/.venv/
+__pycache__/
+*.py[cod]
+/dist/
+.DS_Store

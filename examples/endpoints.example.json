@@ -1,0 +1,11 @@
+{
+  "codex_thread_id": "REPLACE_WITH_VERIFIED_CODEX_THREAD_ID",
+  "claude_session_id": "REPLACE_WITH_VERIFIED_CLAUDE_SESSION_ID",
+  "claude_registry_file": "/absolute/path/to/verified/claude-registry.json",
+  "claude_pid": 12345,
+  "claude_process_start": "REPLACE_WITH_EXACT_REGISTRY_PROCSTART_VALUE",
+  "claude_socket": "/absolute/path/to/verified/claude.sock",
+  "claude_socket_identity": [0, 0],
+  "codex_cli": "/absolute/path/to/codex",
+  "repository": "/absolute/path/to/working/repository"
+}
