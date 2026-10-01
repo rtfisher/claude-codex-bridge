@@ -18,9 +18,12 @@ class BridgeFixture(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="bridge-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+        executable = self.root / "fake-codex"
+        executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        executable.chmod(0o700)
         self.config = {
             "codex_thread_id": "test-codex", "claude_session_id": "test-claude",
-            "codex_cli": str(Path(sys.executable).resolve()), "repository": str(self.root),
+            "codex_cli": str(executable), "repository": str(self.root),
         }
         environment = patch.dict(os.environ, {
             "CODEX_THREAD_ID": "test-codex", "CLAUDE_CODE_SESSION_ID": "test-claude",
@@ -220,7 +223,7 @@ class TransportTests(SocketFixture):
             outcome = bridge.deliver(self.root, self.config, message_id, transport=bridge.submit)
         self.assertEqual(outcome["status"], "queued_unacknowledged")
         arguments = queue.call_args.args[0]
-        self.assertEqual(arguments[:5], [str(Path(sys.executable).resolve()), "queue", "--thread", "test-codex", "--message"])
+        self.assertEqual(arguments[:5], [self.config["codex_cli"], "queue", "--thread", "test-codex", "--message"])
         self.assertIn(f"State directory: {self.root}", arguments[5])
         self.assertEqual(queue.call_args.kwargs["cwd"], str(self.root))
         self.assertFalse(queue.call_args.kwargs.get("shell", False))
