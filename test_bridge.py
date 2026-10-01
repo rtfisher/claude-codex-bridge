@@ -63,8 +63,10 @@ class SessionTests(unittest.TestCase):
         first, first_config = self.configure()
         second, second_config = self.configure("second", "codex-second", "claude-second")
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
+            bridge.initialize(bridge.state_root(), first_config, "codex")
             first_id = bridge.create(bridge.state_root(), first_config, "claude", "task", "first")
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-second"}):
+            bridge.initialize(bridge.state_root(), second_config, "codex")
             second_id = bridge.create(bridge.state_root(), second_config, "claude", "task", "second")
         for root, message_id in ((first, first_id), (second, second_id)):
             state = json.loads((root / "ledger.json").read_text())
@@ -128,6 +130,7 @@ class SessionTests(unittest.TestCase):
         (self.sessions / "alias").symlink_to(root, target_is_directory=True)
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
             self.assertEqual(bridge.state_root(), root)
+            bridge.initialize(bridge.state_root(session="alias"), config, "codex")
             message_id = bridge.create(bridge.state_root(session="alias"), config, "claude", "task", "shared")
         with patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "claude-first"}):
             self.assertFalse(bridge.claim(root, config, message_id, "claude")["duplicate"])
@@ -182,6 +185,7 @@ class SessionTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "CODEX_THREAD_ID": "codex-first", "CLAUDE_CODE_SESSION_ID": "claude-other",
         }), patch.object(bridge, "deliver", side_effect=AssertionError("No real transport")):
+            bridge.initialize(root, bridge.load_config(root), "codex")
             code, stdout, stderr = self.run_cli([
                 "send", "--to", "claude", "--task", "test", "--body-file", str(body), "--prepare-only",
             ])
@@ -196,6 +200,7 @@ class SessionTests(unittest.TestCase):
         root, config = self.configure(root=self.base / "session's state")
         other, _ = self.configure("other", "codex-other", "claude-other")
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
+            bridge.initialize(root, config, "codex")
             message_id = bridge.create(root, config, "claude", "task", "Résumé")
         message = json.loads((root / "ledger.json").read_text())["messages"][message_id]
         text = bridge.message_text(message, config, root)
@@ -232,12 +237,14 @@ class SessionTests(unittest.TestCase):
             return {"transport": "fake", "status": "written_unacknowledged"}
 
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
+            bridge.initialize(bridge.state_root(), config, "codex")
             message_id = bridge.create(bridge.state_root(), config, "claude", "task", "request")
             self.assertTrue(bridge.deliver(root, config, message_id, transport=fake_transport)["sent"])
             self.assertFalse(bridge.deliver(root, config, message_id, transport=fake_transport)["sent"])
             self.assertTrue(bridge.deliver(root, config, message_id, retry=True, transport=fake_transport)["sent"])
         with patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "claude-first"}):
             self.assertFalse(bridge.claim(bridge.state_root(), config, message_id, "claude")["duplicate"])
+            bridge.initialize(bridge.state_root(), config, "claude")
             reply_id = bridge.create(bridge.state_root(), config, "codex", "task", "reply", message_id)
             bridge.deliver(root, config, reply_id, transport=fake_transport)
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
@@ -251,6 +258,7 @@ class SessionTests(unittest.TestCase):
     def test_cli_can_open_an_explicit_external_directory(self):
         root, config = self.configure(root=self.base / "legacy")
         with patch.dict(os.environ, {"CODEX_THREAD_ID": "codex-first"}):
+            bridge.initialize(root, config, "codex")
             message_id = bridge.create(root, config, "claude", "task", "old history")
         code, stdout, stderr = self.run_cli(["--state-dir", str(root), "status"])
         self.assertEqual((code, stderr), (0, ""))

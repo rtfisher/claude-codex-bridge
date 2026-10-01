@@ -19,7 +19,9 @@ Create `sessions/<name>/endpoints.json` with verified endpoint information for
 the intended pair. See [the configuration template](examples/endpoints.example.json)
 for the required fields; its placeholder values must be replaced with the
 actual session, registry, process, socket, and CLI values. Do not create a
-second ledger for a pair that already has message history.
+second ledger for a pair that already has message history. Keep the state
+directory private (`0700`) and its files owner-controlled (`0600` recommended).
+The helper rejects group/other-writable state, configuration, and executables.
 Changing session IDs in an existing configuration does not reassign its ledger.
 
 ```text
@@ -28,7 +30,7 @@ claude-codex-bridge/
   sessions/
     my-session/
       endpoints.json
-      ledger.json       # Created on the first ledger operation
+      ledger.json       # Created by explicit init
       .ledger.lock
 ```
 
@@ -37,6 +39,8 @@ From the repository directory:
 ```bash
 python3 bridge.py --help
 python3 bridge.py --session my-session check
+# Once for a new pair; run as the calling agent (Claude uses --as claude):
+python3 bridge.py --session my-session init --as codex
 python3 bridge.py --session my-session status
 ```
 
@@ -44,6 +48,9 @@ The state directory is selected by `--session NAME` or `--state-dir PATH`, then
 by `CLAUDE_CODEX_BRIDGE_STATE_DIR`, then by matching the calling agent's identity
 against local session configurations. Explicit options go before the command.
 Missing or ambiguous automatic matches fail without selecting another ledger.
+Ordinary commands never create missing history, and `status` does not rewrite
+it. If an existing ledger disappears, restore it; initialization refuses to
+reset a directory with an existing lock. Existing ledgers need no reinitialization.
 
 The session environment must match the pinned endpoint before sending or
 claiming: `CODEX_THREAD_ID` for Codex; `CLAUDE_CODE_SESSION_ID` or the fallback
@@ -70,6 +77,7 @@ transport diagnostics are sanitized.
 
 A duplicate claim must not repeat the work. Reply with
 the same task and `--reply-to MESSAGE_ID` after claiming the incoming message.
+Reply links are recorded at preparation time, independently of delivery success.
 
 For an uncertain delivery, inspect the recorded attempt and retry the same ID
 with `deliver MESSAGE_ID --retry`. A transport accepting a message does not
@@ -97,8 +105,11 @@ python3 bridge.py --session my-session recover MESSAGE_ID --as codex \
 python3 bridge.py --session my-session deliver MESSAGE_ID --retry
 ```
 
-Recovery refuses an active sender, records an audit entry, and marks the
-attempt's delivery as unknown. It preserves claims and duplicate detection.
+Recovery refuses an active sender or a queue process holding its inherited
+delivery lock, records an audit entry, and marks the attempt's delivery as unknown. It preserves claims and duplicate detection.
+Queue wrappers must preserve the inherited lock descriptor until exit; wrappers
+that close it or detach workers without it are unsupported. Ledger commits sync
+both file contents and the parent directory before reporting success.
 
 Unversioned ledgers require explicit migration. First stop and upgrade or
 retire every older helper accessing that directory, then confirm the original

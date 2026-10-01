@@ -20,7 +20,7 @@ class BridgeFixture(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.config = {
             "codex_thread_id": "test-codex", "claude_session_id": "test-claude",
-            "codex_cli": "/fake/codex", "repository": str(self.root),
+            "codex_cli": str(Path(sys.executable).resolve()), "repository": str(self.root),
         }
         environment = patch.dict(os.environ, {
             "CODEX_THREAD_ID": "test-codex", "CLAUDE_CODE_SESSION_ID": "test-claude",
@@ -28,6 +28,7 @@ class BridgeFixture(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         (self.root / "endpoints.json").write_text(json.dumps(self.config), encoding="utf-8")
+        bridge.initialize(self.root, self.config, "codex")
 
     def create(self, recipient="claude", body="test message", reply_to=None):
         return bridge.create(self.root, self.config, recipient, "test-task", body, reply_to)
@@ -48,7 +49,7 @@ class MessageTests(BridgeFixture):
         for task in ("", "x" * 121, "bad\ntask", "bad\x00task"):
             with self.subTest(task=task), self.assertRaisesRegex(ValueError, "Task ID"):
                 bridge.create(self.root, self.config, "claude", task, "body")
-        self.assertFalse((self.root / "ledger.json").exists())
+        self.assertEqual(self.messages(), {})
 
     def test_reply_requires_claim(self):
         parent_id = self.create()
@@ -219,7 +220,7 @@ class TransportTests(SocketFixture):
             outcome = bridge.deliver(self.root, self.config, message_id, transport=bridge.submit)
         self.assertEqual(outcome["status"], "queued_unacknowledged")
         arguments = queue.call_args.args[0]
-        self.assertEqual(arguments[:5], ["/fake/codex", "queue", "--thread", "test-codex", "--message"])
+        self.assertEqual(arguments[:5], [str(Path(sys.executable).resolve()), "queue", "--thread", "test-codex", "--message"])
         self.assertIn(f"State directory: {self.root}", arguments[5])
         self.assertEqual(queue.call_args.kwargs["cwd"], str(self.root))
         self.assertFalse(queue.call_args.kwargs.get("shell", False))

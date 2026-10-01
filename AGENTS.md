@@ -53,8 +53,13 @@ digit. For a new pair, create its directory and add a verified `endpoints.json`
 before using the helper. `examples/endpoints.example.json` documents the
 required fields; replace every placeholder with verified values and preserve
 the registry's exact value types. The helper does not discover endpoints or
-invent their configuration. The first ledger operation creates `ledger.json`
-and its lock in the selected directory.
+invent their configuration. Initialize a new pair explicitly with `init --as codex`
+(or `--as claude`) from that agent's environment. This creates `ledger.json`
+and its permanent lock. Ordinary commands never recreate missing history.
+If a ledger disappears, restore it; `init` refuses to reset a directory whose
+lock already exists. An interrupted initialization also retains the lock and
+requires inspection instead of an automatic reset. Existing ledgers remain
+usable without initialization.
 
 New ledgers use schema version 2. Both the ledger and each message are bound to
 the original Codex and Claude session IDs. Changing either ID in
@@ -85,6 +90,8 @@ bridge_script=/absolute/path/to/claude-codex-bridge/bridge.py
 "$bridge_python" "$bridge_script" --help
 # Once this agent has a uniquely matching local endpoints.json:
 "$bridge_python" "$bridge_script" check
+# For a new pair only (Claude uses --as claude):
+"$bridge_python" "$bridge_script" init --as codex
 "$bridge_python" "$bridge_script" status
 # To select a configured local pair explicitly:
 "$bridge_python" "$bridge_script" --session my-session status
@@ -94,8 +101,8 @@ bridge_script=/absolute/path/to/claude-codex-bridge/bridge.py
 the selected state directory and configured Codex thread. It sends no message;
 it does not independently probe the Codex queue or validate the calling agent's
 session identity.
-`status` summarizes the ledger. It acquires the shared lock and rewrites the
-unchanged ledger through the helper's normal atomic-save path. It reports
+`status` summarizes the ledger without rewriting it. It acquires the shared
+lock and reports
 claim and completion times separately, and excludes raw transport errors and
 queue output, including sensitive diagnostics left by older helpers.
 
@@ -173,7 +180,10 @@ or redelivery. After completing the requested work and any necessary reply:
   --body-file /absolute/path/to/reply.md
 ```
 
-The incoming message must have been claimed before replying. A normal assistant
+The incoming message must have been claimed before replying. Reply IDs are
+validated before writing. A reply is linked to its parent atomically when it is
+prepared, so `replies` includes prepared and uncertain deliveries; consult the
+reply's attempts and claim status for delivery evidence. A normal assistant
 final answer is not forwarded. Do not acknowledge acknowledgments.
 
 ## Delivery and retries
@@ -221,10 +231,16 @@ sender and any orphaned queue process, and recover that exact attempt:
 ```
 
 Only the original sender can recover an attempt. Recovery acquires the same
-per-message lock as delivery, refuses a live sender, verifies the expected
+per-message lock as delivery, refuses a live sender or a queue process retaining
+the inherited lock, verifies the expected
 attempt ID, and records the reason and actor in the ledger. It marks delivery
 unknown; it does not establish that the notification was never delivered.
-Existing recipient claims and duplicate detection remain intact.
+Existing recipient claims and duplicate detection remain intact. The queue
+process inherits the delivery-lock descriptor via `pass_fds`; it must preserve
+that descriptor until exit. Executable wrappers that close inherited file
+descriptors or launch detached workers that do not retain them are unsupported.
+The standard subprocess timeout kills and waits for the direct queue child.
+Do not remove lock files to bypass a live transport.
 
 ## Migrating existing history
 
@@ -247,6 +263,27 @@ and replies. It does not change endpoint pins or deliver messages. It rejects
 partial bindings and corrupted messages. Legacy history cannot prove its own
 original pairing, so do not infer that pairing merely from recently edited
 endpoints or change environment IDs to bypass a mismatch.
+
+## Filesystem protection and durability
+
+The state directory and its ancestors must be controlled by the current user
+or the OS, with no group/other write access (sticky temporary ancestors are
+allowed). State files must be regular, singly linked files owned by the current
+user and not writable by group/others. Configuration, ledger, and lock files
+are opened without following symlinks; alias the entire directory if needed.
+Prefer directory mode `0700` and file mode `0600`, including body files.
+
+`codex_cli` must be an absolute path to an executable controlled by the user or
+root, with no group/other write access to it or its resolved ancestors. An
+owner-controlled executable symlink is resolved before launching. These checks
+protect against other OS users; they do not authenticate mutually untrusted
+programs running as the same user. Keep the state out of shared writable paths.
+
+Ledger commits flush the temporary file, atomically replace the ledger, then
+flush its parent directory before reporting success. Directory-sync errors are
+reported, even if replacement already occurred; inspect history before retrying.
+Durability depends on the local filesystem and storage honoring sync operations;
+it does not establish durability on another Dropbox-connected machine.
 
 ## Maintenance and scope
 
